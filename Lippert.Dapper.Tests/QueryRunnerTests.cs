@@ -18,7 +18,7 @@ namespace Lippert.Dapper.Tests
 
 		private IDbConnection _dbConnectionMock;
 		private Mock<Contracts.IDapperWrapper> _dapperMock;
-		private QueryRunnerUnderTest _queryRunner;
+		private Contracts.IQueryRunner _queryRunner;
 
 		[OneTimeSetUp]
 		public void OneTimeSetUp() => ReflectingRegistrationSource.CodebaseNamespacePrefix = "Lippert";
@@ -39,7 +39,7 @@ namespace Lippert.Dapper.Tests
 			//--Mock
 			_dbConnectionMock = new Mock<IDbConnection>().Object;
 			_dapperMock = new Mock<Contracts.IDapperWrapper>();
-			_queryRunner = new QueryRunnerUnderTest(_dapperMock.Object);
+			_queryRunner = new QueryRunner(_dapperMock.Object);
 		}
 
 
@@ -685,15 +685,6 @@ namespace Lippert.Dapper.Tests
 			_dapperMock.Verify(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<IDbTransaction>(), It.IsAny<int?>(), It.IsAny<CommandType>()));
 		}
 
-
-
-		public class QueryRunnerUnderTest : QueryRunner
-		{
-			public QueryRunnerUnderTest(Contracts.IDapperWrapper dapperWrapper)
-			{
-				DapperWrapper = dapperWrapper;
-			}
-		}
 
 		public class GuidIdentifier
 		{

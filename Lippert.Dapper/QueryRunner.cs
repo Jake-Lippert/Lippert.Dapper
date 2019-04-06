@@ -11,14 +11,17 @@ namespace Lippert.Dapper
 	public class QueryRunner : Contracts.IQueryRunner
 	{
 		private readonly SqlServerQueryBuilder _queryBuilder = new SqlServerQueryBuilder();
+		private readonly Contracts.IDapperWrapper _dapperWrapper;
 
-		protected Contracts.IDapperWrapper DapperWrapper { get; set; } = new DapperWrapper();
+		public QueryRunner()
+			: this(new DapperWrapper()) { }
+		public QueryRunner(Contracts.IDapperWrapper dapperWrapper) => _dapperWrapper = dapperWrapper;
 
 
-		public T Select<T>(IDbConnection connection, dynamic key, bool buffered = true, int? commandTimeout = null) =>
-			Enumerable.SingleOrDefault(Select(connection, new PredicateBuilder<T>().Key(key), null, buffered, commandTimeout));//--C# gets confused at runtime when calling this as an extension method
-		public T Select<T>(IDbTransaction transaction, dynamic key, bool buffered = true, int? commandTimeout = null) =>
-			Enumerable.SingleOrDefault(Select(null, new PredicateBuilder<T>().Key(key), transaction, buffered, commandTimeout));//--C# gets confused at runtime when calling this as an extension method
+		public T Select<T>(IDbConnection connection, object key, bool buffered = true, int? commandTimeout = null) =>
+			Select(connection, new PredicateBuilder<T>().Key(key), null, buffered, commandTimeout).SingleOrDefault();
+		public T Select<T>(IDbTransaction transaction, object key, bool buffered = true, int? commandTimeout = null) =>
+			Select(null, new PredicateBuilder<T>().Key(key), transaction, buffered, commandTimeout).SingleOrDefault();
 
 		public IEnumerable<T> Select<T>(IDbConnection connection, bool buffered = true, int? commandTimeout = null) =>
 			Select(connection, new PredicateBuilder<T>(), null, buffered, commandTimeout);
@@ -38,7 +41,7 @@ namespace Lippert.Dapper
 			}
 
 			var sql = _queryBuilder.Select(selectBuilder);
-			return DapperWrapper.Query<T>(transaction?.Connection ?? connection, sql, dynamicParameters, transaction, buffered, commandTimeout, CommandType.Text);
+			return _dapperWrapper.Query<T>(transaction?.Connection ?? connection, sql, dynamicParameters, transaction, buffered, commandTimeout, CommandType.Text);
 		}
 
 
@@ -55,7 +58,7 @@ namespace Lippert.Dapper
 			var sql = _queryBuilder.Insert(tableMap);
 			if (tableMap.GeneratedColumns.Any())
 			{
-				var output = DapperWrapper.Query<T>(transaction?.Connection ?? connection, sql, record, transaction, commandTimeout: commandTimeout, commandType: CommandType.Text).Single();
+				var output = _dapperWrapper.Query<T>(transaction?.Connection ?? connection, sql, record, transaction, commandTimeout: commandTimeout, commandType: CommandType.Text).Single();
 				foreach (var generatedProperty in tableMap.GeneratedColumns.Select(c => c.Property))
 				{
 					generatedProperty.SetValue(record, generatedProperty.GetValue(output));
@@ -63,7 +66,7 @@ namespace Lippert.Dapper
 			}
 			else
 			{
-				DapperWrapper.Execute(transaction?.Connection ?? connection, sql, record, transaction, commandTimeout: commandTimeout, commandType: CommandType.Text);
+				_dapperWrapper.Execute(transaction?.Connection ?? connection, sql, record, transaction, commandTimeout: commandTimeout, commandType: CommandType.Text);
 			}
 		}
 
@@ -78,7 +81,7 @@ namespace Lippert.Dapper
 			ColumnValueProvider.ApplyUpdateValues(record);
 
 			var sql = _queryBuilder.Update<T>();
-			return DapperWrapper.Execute(transaction?.Connection ?? connection, sql, record, transaction, commandTimeout, CommandType.Text);
+			return _dapperWrapper.Execute(transaction?.Connection ?? connection, sql, record, transaction, commandTimeout, CommandType.Text);
 		}
 
 		public int Update<T>(IDbConnection connection, UpdateBuilder<T> updateBuilder, int? commandTimeout = null) =>
@@ -103,12 +106,12 @@ namespace Lippert.Dapper
 			}
 			
 			var sql = _queryBuilder.Update(updateBuilder);
-			return DapperWrapper.Execute(transaction?.Connection ?? connection, sql, dynamicParameters, transaction, commandTimeout, CommandType.Text);
+			return _dapperWrapper.Execute(transaction?.Connection ?? connection, sql, dynamicParameters, transaction, commandTimeout, CommandType.Text);
 		}
 
-		public int Delete<T>(IDbConnection connection, dynamic key, int? commandTimeout = null) =>
+		public int Delete<T>(IDbConnection connection, object key, int? commandTimeout = null) =>
 			Delete(connection, new PredicateBuilder<T>().Key(key), null, commandTimeout);
-		public int Delete<T>(IDbTransaction transaction, dynamic key, int? commandTimeout = null) =>
+		public int Delete<T>(IDbTransaction transaction, object key, int? commandTimeout = null) =>
 			Delete(null, new PredicateBuilder<T>().Key(key), transaction, commandTimeout);
 
 		public int Delete<T>(IDbConnection connection, PredicateBuilder<T> predicateBuilder, int? commandTimeout = null) =>
@@ -124,7 +127,7 @@ namespace Lippert.Dapper
 			}
 
 			var sql = _queryBuilder.Delete(predicateBuilder);
-			return DapperWrapper.Execute(transaction?.Connection ?? connection, sql, dynamicParameters, transaction, commandTimeout, CommandType.Text);
+			return _dapperWrapper.Execute(transaction?.Connection ?? connection, sql, dynamicParameters, transaction, commandTimeout, CommandType.Text);
 		}
 	}
 }

@@ -6,8 +6,8 @@ namespace Lippert.Dapper.Contracts
 {
 	public interface IQueryRunner
 	{
-		T Select<T>(IDbConnection connection, dynamic key, bool buffered = true, int? commandTimeout = null);
-		T Select<T>(IDbTransaction transaction, dynamic key, bool buffered = true, int? commandTimeout = null);
+		T Select<T>(IDbConnection connection, object key, bool buffered = true, int? commandTimeout = null);
+		T Select<T>(IDbTransaction transaction, object key, bool buffered = true, int? commandTimeout = null);
 		IEnumerable<T> Select<T>(IDbConnection connection, bool buffered = true, int? commandTimeout = null);
 		IEnumerable<T> Select<T>(IDbTransaction transaction, bool buffered = true, int? commandTimeout = null);
 		IEnumerable<T> Select<T>(IDbConnection connection, PredicateBuilder<T> selectBuilder, bool buffered = true, int? commandTimeout = null);
@@ -21,8 +21,8 @@ namespace Lippert.Dapper.Contracts
 		int Update<T>(IDbConnection connection, UpdateBuilder<T> updateBuilder, int? commandTimeout = null);
 		int Update<T>(IDbTransaction transaction, UpdateBuilder<T> updateBuilder, int? commandTimeout = null);
 
-		int Delete<T>(IDbConnection connection, dynamic key, int? commandTimeout = null);
-		int Delete<T>(IDbTransaction transaction, dynamic key, int? commandTimeout = null);
+		int Delete<T>(IDbConnection connection, object key, int? commandTimeout = null);
+		int Delete<T>(IDbTransaction transaction, object key, int? commandTimeout = null);
 		int Delete<T>(IDbConnection connection, PredicateBuilder<T> predicateBuilder, int? commandTimeout = null);
 		int Delete<T>(IDbTransaction transaction, PredicateBuilder<T> predicateBuilder, int? commandTimeout = null);
 	}
