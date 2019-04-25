@@ -3,7 +3,6 @@ using System.Data;
 using System.Linq;
 using Dapper;
 using Lippert.Core.Configuration;
-using Lippert.Core.Data.QueryBuilders;
 using Lippert.Dapper.Tests.TestSchema;
 using Lippert.Dapper.Tests.TestSchema.Contracts;
 using Moq;
@@ -17,18 +16,14 @@ namespace Lippert.Dapper.Tests
 		private Guid _currentUserId;
 
 		private IDbConnection _dbConnectionMock;
+		private IDbTransaction _dbTransactionMock;
 		private Mock<Contracts.IDapperWrapper> _dapperMock;
 		private Contracts.IQueryRunner _queryRunner;
 
 		[OneTimeSetUp]
-		public void OneTimeSetUp() => ReflectingRegistrationSource.CodebaseNamespacePrefix = "Lippert";
+		public void OneTimeSetUp() => ReflectingRegistrationSource.CodebaseNamespacePrefix = nameof(Lippert);
 
-		private string[] SplitQuery(string query) =>
-#if TARGET_FRAMEWORK_NET471
-			query.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
-#else
-			query.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
-#endif
+		private string[] SplitQuery(string query) => query.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
 
 		[SetUp]
 		public void SetUp()
@@ -38,13 +33,17 @@ namespace Lippert.Dapper.Tests
 
 			//--Mock
 			_dbConnectionMock = new Mock<IDbConnection>().Object;
+			var dbTransactionMock = new Mock<IDbTransaction>();
+			dbTransactionMock.Setup(x => x.Connection)
+				.Returns(_dbConnectionMock);
+			_dbTransactionMock = dbTransactionMock.Object;
 			_dapperMock = new Mock<Contracts.IDapperWrapper>();
 			_queryRunner = new QueryRunner(_dapperMock.Object);
 		}
 
 
 		[Test]
-		public void TestSelectBySingleId([Values(0, 1, 2)] int idParameter)
+		public void TestSelectBySingleId([Values(0, 1, 2)] int idParameter, [Values(false, true)] bool useTransaction)
 		{
 			//--Arrange
 			var id = Guid.NewGuid();
@@ -76,6 +75,16 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("from [User]", lines[1]);
 					Assert.AreEqual("where [Id] = @Id", lines[2]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					if (useTransaction)
+					{
+						Assert.AreSame(_dbTransactionMock, transaction);
+					}
+					else
+					{
+						Assert.IsNull(transaction);
+					}
+
 					var dynamicParam = param as DynamicParameters;
 					Assert.IsNotNull(dynamicParam);
 					Assert.AreEqual(1, dynamicParam.ParameterNames.Count());
@@ -86,7 +95,7 @@ namespace Lippert.Dapper.Tests
 				});
 
 			//--Act
-			var user = _queryRunner.Select<User>(_dbConnectionMock, key);
+			var user = (useTransaction ? _queryRunner.Select<User>(_dbTransactionMock, x => x.Key(key)) : _queryRunner.Select<User>(_dbConnectionMock, x => x.Key(key))).SingleOrDefault();
 
 			//--Assert
 			Assert.AreEqual(id, user.Id);
@@ -94,7 +103,7 @@ namespace Lippert.Dapper.Tests
 		}
 
 		[Test]
-		public void TestSelectByComponentKey([Values(0, 1, 2)] int idParameter)
+		public void TestSelectByComponentKey([Values(0, 1, 2, 3)] int idParameter, [Values(false, true)] bool useTransaction)
 		{
 			//--Arrange
 			var clientId = Guid.NewGuid();
@@ -110,6 +119,9 @@ namespace Lippert.Dapper.Tests
 					break;
 				case 2:
 					key = new ClientUser { ClientId = clientId, UserId = userId };
+					break;
+				case 3:
+					key = null;
 					break;
 				default:
 					throw new Exception();
@@ -127,6 +139,16 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("from [Client_User]", lines[1]);
 					Assert.AreEqual("where [ClientId] = @ClientId and [UserId] = @UserId", lines[2]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					if (useTransaction)
+					{
+						Assert.AreSame(_dbTransactionMock, transaction);
+					}
+					else
+					{
+						Assert.IsNull(transaction);
+					}
+
 					var dynamicParam = param as DynamicParameters;
 					Assert.IsNotNull(dynamicParam);
 					Assert.AreEqual(2, dynamicParam.ParameterNames.Count());
@@ -139,7 +161,17 @@ namespace Lippert.Dapper.Tests
 				});
 
 			//--Act
-			var clientUser = _queryRunner.Select<ClientUser>(_dbConnectionMock, key);
+			ClientUser clientUser;
+			switch (idParameter)
+			{
+				case 3:
+					clientUser = (useTransaction ? _queryRunner.Select<ClientUser>(_dbTransactionMock, x => x.Filter(cu => cu.ClientId, clientId).Filter(cu => cu.UserId, userId)) : _queryRunner.Select<ClientUser>(_dbConnectionMock, x => x.Filter(cu => cu.ClientId, clientId).Filter(cu => cu.UserId, userId))).SingleOrDefault();
+					break;
+
+				default:
+					clientUser = (useTransaction ? _queryRunner.Select<ClientUser>(_dbTransactionMock, x => x.Key(key)) : _queryRunner.Select<ClientUser>(_dbConnectionMock, x => x.Key(key))).SingleOrDefault();
+					break;
+			}
 
 			//--Assert
 			Assert.AreEqual(clientId, clientUser.ClientId);
@@ -148,7 +180,7 @@ namespace Lippert.Dapper.Tests
 		}
 
 		[Test]
-		public void TestSelectAll()
+		public void TestSelectAll([Values(false, true)] bool useTransaction)
 		{
 			//--Mock
 			_dapperMock.Setup(x => x.Query<InheritingComponent>(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<IDbTransaction>(), It.IsAny<bool>(), It.IsAny<int?>(), It.IsAny<CommandType>()))
@@ -161,6 +193,16 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("select [Id], [BaseId], [Category], [Cost]", lines[0]);
 					Assert.AreEqual("from [InheritingComponent]", lines[1]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					if (useTransaction)
+					{
+						Assert.AreSame(_dbTransactionMock, transaction);
+					}
+					else
+					{
+						Assert.IsNull(transaction);
+					}
+
 					var dynamicParam = param as DynamicParameters;
 					Assert.IsNotNull(dynamicParam);
 					Assert.AreEqual(0, dynamicParam.ParameterNames.Count());
@@ -169,7 +211,7 @@ namespace Lippert.Dapper.Tests
 				});
 
 			//--Act
-			var inheritingComponents = _queryRunner.Select<InheritingComponent>(_dbConnectionMock).ToList();
+			var inheritingComponents = (useTransaction ? _queryRunner.Select<InheritingComponent>(_dbTransactionMock) : _queryRunner.Select<InheritingComponent>(_dbConnectionMock)).ToList();
 
 			//--Assert
 			Assert.AreEqual(100, inheritingComponents.Count);
@@ -196,6 +238,9 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("ouput inserted.[Id]", lines[1]);
 					Assert.AreEqual("values(@Name)", lines[2]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					Assert.IsNull(transaction);
+
 					var baseRecord = param as BaseRecord;
 					Assert.IsNotNull(baseRecord);
 					Assert.AreEqual(Guid.Empty, baseRecord.Id);
@@ -213,7 +258,7 @@ namespace Lippert.Dapper.Tests
 		}
 
 		[Test]
-		public void TestInsertAssignedKeyWithGeneratedFields()
+		public void TestInsertAssignedKeyWithGeneratedFields([Values(false, true)] bool useTransaction)
 		{
 			//--Arrange
 			var toInsert = new Employee { UserId = Guid.NewGuid(), CompanyId = Guid.NewGuid() };
@@ -231,6 +276,16 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("ouput inserted.[CreatedDateUtc]", lines[1]);
 					Assert.AreEqual("values(@UserId, @CompanyId, @CreatedByUserId)", lines[2]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					if (useTransaction)
+					{
+						Assert.AreSame(_dbTransactionMock, transaction);
+					}
+					else
+					{
+						Assert.IsNull(transaction);
+					}
+
 					var employee = param as Employee;
 					Assert.IsNotNull(employee);
 					Assert.AreNotEqual(Guid.Empty, employee.UserId);
@@ -242,7 +297,14 @@ namespace Lippert.Dapper.Tests
 				});
 
 			//--Act
-			_queryRunner.Insert(_dbConnectionMock, toInsert);
+			if (useTransaction)
+			{
+				_queryRunner.Insert(_dbTransactionMock, toInsert);
+			}
+			else
+			{
+				_queryRunner.Insert(_dbConnectionMock, toInsert);
+			}
 
 			//--Assert
 			Assert.AreEqual(now, toInsert.CreatedDateUtc);
@@ -266,6 +328,9 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("insert into [Client_User]([ClientId], [UserId], [IsActive], [Role])", lines[0]);
 					Assert.AreEqual("values(@ClientId, @UserId, @IsActive, @Role)", lines[1]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					Assert.IsNull(transaction);
+
 					var clientUser = param as ClientUser;
 					Assert.IsNotNull(clientUser);
 					Assert.AreNotEqual(Guid.Empty, clientUser.ClientId);
@@ -283,7 +348,7 @@ namespace Lippert.Dapper.Tests
 
 
 		[Test]
-		public void TestUpdateFullRecordBySingleId()
+		public void TestUpdateFullRecordBySingleId([Values(false, true)] bool useTransaction)
 		{
 			//--Arrange
 			var toUpate = new Client { Name = "Some Name", IsActive = false };
@@ -302,6 +367,16 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("set [ModifiedByUserId] = @ModifiedByUserId, [ModifiedDateUtc] = @ModifiedDateUtc, [Name] = @Name, [IsActive] = @IsActive", lines[1]);
 					Assert.AreEqual("where [Id] = @Id", lines[2]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					if (useTransaction)
+					{
+						Assert.AreSame(_dbTransactionMock, transaction);
+					}
+					else
+					{
+						Assert.IsNull(transaction);
+					}
+
 					var client = param as Client;
 					Assert.IsNotNull(client);
 					Assert.AreNotEqual(Guid.Empty, (client as IGuidIdentifier).Id);
@@ -315,7 +390,7 @@ namespace Lippert.Dapper.Tests
 				});
 
 			//--Act
-			var updates = _queryRunner.Update(_dbConnectionMock, toUpate);
+			var updates = useTransaction ? _queryRunner.Update(_dbTransactionMock, toUpate) : _queryRunner.Update(_dbConnectionMock, toUpate);
 
 			//--Assert
 			Assert.AreEqual(1, updates);
@@ -339,6 +414,9 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("update [Client_User]", lines[0]);
 					Assert.AreEqual("set [IsActive] = @IsActive, [Role] = @Role", lines[1]);
 					Assert.AreEqual("where [ClientId] = @ClientId and [UserId] = @UserId", lines[2]);
+
+					Assert.AreSame(_dbConnectionMock, conn);
+					Assert.IsNull(transaction);
 
 					var clientUser = param as ClientUser;
 					Assert.IsNotNull(clientUser);
@@ -378,6 +456,9 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("set [IsActive] = @IsActive, [ModifiedByUserId] = @ModifiedByUserId, [ModifiedDateUtc] = @ModifiedDateUtc", lines[1]);
 					Assert.AreEqual("where [Id] = @Id", lines[2]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					Assert.IsNull(transaction);
+
 					var dynamicParam = param as DynamicParameters;
 					Assert.IsNotNull(dynamicParam);
 					Assert.AreEqual(4, dynamicParam.ParameterNames.Count());
@@ -396,7 +477,7 @@ namespace Lippert.Dapper.Tests
 				});
 
 			//--Act
-			var updates = _queryRunner.Update(_dbConnectionMock, new UpdateBuilder<Client>().Set(x => x.IsActive, false).Key(toUpate));
+			var updates = _queryRunner.Update<Client>(_dbConnectionMock, ub => ub.Set(x => x.IsActive, false).Key(toUpate));
 
 			//--Assert
 			Assert.AreEqual(1, updates);
@@ -423,6 +504,9 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("set [IsActive] = @IsActive, [ModifiedByUserId] = @ModifiedByUserId, [ModifiedDateUtc] = @ModifiedDateUtc", lines[1]);
 					Assert.AreEqual("where [Id] = @Id", lines[2]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					Assert.IsNull(transaction);
+
 					var dynamicParam = param as DynamicParameters;
 					Assert.IsNotNull(dynamicParam);
 					Assert.AreEqual(4, dynamicParam.ParameterNames.Count());
@@ -441,7 +525,7 @@ namespace Lippert.Dapper.Tests
 				});
 
 			//--Act
-			var updates = _queryRunner.Update(_dbConnectionMock, new UpdateBuilder<Client>().Set(x => x.IsActive, isActive).Key(clientId));
+			var updates = _queryRunner.Update<Client>(_dbConnectionMock, ub => ub.Set(x => x.IsActive, isActive).Key(clientId));
 
 			//--Assert
 			Assert.AreEqual(1, updates);
@@ -466,6 +550,9 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("set [IsActive] = @IsActive", lines[1]);
 					Assert.AreEqual("where [ClientId] = @ClientId and [UserId] = @UserId", lines[2]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					Assert.IsNull(transaction);
+
 					var dynamicParam = param as DynamicParameters;
 					Assert.IsNotNull(dynamicParam);
 					Assert.AreEqual(3, dynamicParam.ParameterNames.Count());
@@ -480,7 +567,7 @@ namespace Lippert.Dapper.Tests
 				});
 
 			//--Act
-			var updates = _queryRunner.Update(_dbConnectionMock, new UpdateBuilder<ClientUser>().Set(x => x.IsActive, false).Key(toUpate));
+			var updates = _queryRunner.Update<ClientUser>(_dbConnectionMock, ub => ub.Set(x => x.IsActive, false).Key(toUpate));
 
 			//--Assert
 			Assert.AreEqual(1, updates);
@@ -488,7 +575,7 @@ namespace Lippert.Dapper.Tests
 		}
 
 		[Test]
-		public void TestUpdatePartialRecordByNonKey()
+		public void TestUpdatePartialRecordByNonKey([Values(false, true)] bool useTransaction)
 		{
 			//--Mock
 			_dapperMock.Setup(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<IDbTransaction>(), It.IsAny<int?>(), It.IsAny<CommandType>()))
@@ -502,6 +589,16 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("set [Role] = @Role", lines[1]);
 					Assert.AreEqual("where [IsActive] = @IsActive", lines[2]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					if (useTransaction)
+					{
+						Assert.AreSame(_dbTransactionMock, transaction);
+					}
+					else
+					{
+						Assert.IsNull(transaction);
+					}
+
 					var dynamicParam = param as DynamicParameters;
 					Assert.IsNotNull(dynamicParam);
 					Assert.AreEqual(2, dynamicParam.ParameterNames.Count());
@@ -514,7 +611,7 @@ namespace Lippert.Dapper.Tests
 				});
 
 			//--Act
-			var updates = _queryRunner.Update(_dbConnectionMock, new UpdateBuilder<ClientUser>().Set(x => x.Role, "Update").Filter(x => x.IsActive, true));
+			var updates = useTransaction ? _queryRunner.Update<ClientUser>(_dbTransactionMock, x => x.Set(cu => cu.Role, "Update").Filter(cu => cu.IsActive, true)) : _queryRunner.Update<ClientUser>(_dbConnectionMock, x => x.Set(cu => cu.Role, "Update").Filter(cu => cu.IsActive, true));
 
 			//--Assert
 			Assert.AreEqual(1, updates);
@@ -536,6 +633,9 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("set [Role] = @_Role", lines[1]);
 					Assert.AreEqual("where [Role] = @Role", lines[2]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					Assert.IsNull(transaction);
+
 					var dynamicParam = param as DynamicParameters;
 					Assert.IsNotNull(dynamicParam);
 					Assert.AreEqual(2, dynamicParam.ParameterNames.Count());
@@ -548,7 +648,7 @@ namespace Lippert.Dapper.Tests
 				});
 
 			//--Act
-			var updates = _queryRunner.Update(_dbConnectionMock, new UpdateBuilder<ClientUser>().Set(x => x.Role, "New Role").Filter(x => x.Role, "Old Role"));
+			var updates = _queryRunner.Update<ClientUser>(_dbConnectionMock, ub => ub.Set(x => x.Role, "New Role").Filter(x => x.Role, "Old Role"));
 
 			//--Assert
 			Assert.AreEqual(1, updates);
@@ -557,7 +657,7 @@ namespace Lippert.Dapper.Tests
 
 
 		[Test]
-		public void TestDeleteBySingleId([Values(0, 1, 2)] int idParameter)
+		public void TestDeleteBySingleId([Values(0, 1, 2)] int idParameter, [Values(false, true)] bool useTransaction)
 		{
 			//--Arrange
 			var id = Guid.NewGuid();
@@ -588,6 +688,16 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("delete from [User]", lines[0]);
 					Assert.AreEqual("where [Id] = @Id", lines[1]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					if (useTransaction)
+					{
+						Assert.AreSame(_dbTransactionMock, transaction);
+					}
+					else
+					{
+						Assert.IsNull(transaction);
+					}
+
 					var dynamicParam = param as DynamicParameters;
 					Assert.IsNotNull(dynamicParam);
 					Assert.AreEqual(1, dynamicParam.ParameterNames.Count());
@@ -598,14 +708,21 @@ namespace Lippert.Dapper.Tests
 				});
 
 			//--Act
-			_queryRunner.Delete<User>(_dbConnectionMock, key);
+			if (useTransaction)
+			{
+				_queryRunner.Delete<User>(_dbTransactionMock, x => x.Key(key));
+			}
+			else
+			{
+				_queryRunner.Delete<User>(_dbConnectionMock, x => x.Key(key));
+			}
 
 			//--Assert
 			_dapperMock.Verify(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<IDbTransaction>(), It.IsAny<int?>(), It.IsAny<CommandType>()));
 		}
 
 		[Test]
-		public void TestDeleteByComponentKey([Values(0, 1, 2)] int idParameter)
+		public void TestDeleteByComponentKey([Values(0, 1, 2, 3)] int idParameter)
 		{
 			//--Arrange
 			var clientId = Guid.NewGuid();
@@ -622,6 +739,9 @@ namespace Lippert.Dapper.Tests
 				case 2:
 					key = new ClientUser { ClientId = clientId, UserId = userId };
 					break;
+				case 3:
+					key = null;
+					break;
 				default:
 					throw new Exception();
 			}
@@ -637,6 +757,9 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("delete from [Client_User]", lines[0]);
 					Assert.AreEqual("where [ClientId] = @ClientId and [UserId] = @UserId", lines[1]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					Assert.IsNull(transaction);
+
 					var dynamicParam = param as DynamicParameters;
 					Assert.IsNotNull(dynamicParam);
 					Assert.AreEqual(2, dynamicParam.ParameterNames.Count());
@@ -649,14 +772,21 @@ namespace Lippert.Dapper.Tests
 				});
 
 			//--Act
-			_queryRunner.Delete<ClientUser>(_dbConnectionMock, key);
+			if (idParameter == 3)
+			{
+				_queryRunner.Delete<ClientUser>(_dbConnectionMock, x => x.Filter(cu => cu.ClientId, clientId).Filter(cu => cu.UserId, userId));
+			}
+			else
+			{
+				_queryRunner.Delete<ClientUser>(_dbConnectionMock, x => x.Key(key));
+			}
 
 			//--Assert
 			_dapperMock.Verify(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<IDbTransaction>(), It.IsAny<int?>(), It.IsAny<CommandType>()));
 		}
 
 		[Test]
-		public void TestDeleteBySingleNonKey([Values(0, 1, 2)] int idParameter)
+		public void TestDeleteBySingleNonKey([Values(false, true)] bool useTransaction)
 		{
 			//--Mock
 			_dapperMock.Setup(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<IDbTransaction>(), It.IsAny<int?>(), It.IsAny<CommandType>()))
@@ -669,6 +799,16 @@ namespace Lippert.Dapper.Tests
 					Assert.AreEqual("delete from [InheritingComponent]", lines[0]);
 					Assert.AreEqual("where [Category] = @Category", lines[1]);
 
+					Assert.AreSame(_dbConnectionMock, conn);
+					if (useTransaction)
+					{
+						Assert.AreSame(_dbTransactionMock, transaction);
+					}
+					else
+					{
+						Assert.IsNull(transaction);
+					}
+
 					var dynamicParam = param as DynamicParameters;
 					Assert.IsNotNull(dynamicParam);
 					Assert.AreEqual(1, dynamicParam.ParameterNames.Count());
@@ -679,7 +819,14 @@ namespace Lippert.Dapper.Tests
 				});
 
 			//--Act
-			_queryRunner.Delete(_dbConnectionMock, new PredicateBuilder<InheritingComponent>().Filter(x => x.Category, "Delete Me"));
+			if (useTransaction)
+			{
+				_queryRunner.Delete<InheritingComponent>(_dbTransactionMock, x => x.Filter(ic => ic.Category, "Delete Me"));
+			}
+			else
+			{
+				_queryRunner.Delete<InheritingComponent>(_dbConnectionMock, x => x.Filter(ic => ic.Category, "Delete Me"));
+			}
 
 			//--Assert
 			_dapperMock.Verify(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<IDbTransaction>(), It.IsAny<int?>(), It.IsAny<CommandType>()));

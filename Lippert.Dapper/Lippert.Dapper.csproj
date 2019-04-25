@@ -1,26 +1,27 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<TargetFrameworks>netstandard2.0;net471</TargetFrameworks>
+		<TargetFrameworks>netstandard2.0;net45</TargetFrameworks>
 		<LangVersion>latest</LangVersion>
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 		<PackageId>Lippert.Dapper</PackageId>
-		<Version>0.1.0</Version>
+		<Version>0.2.0</Version>
 		<Authors>Jake Lippert</Authors>
 		<Copyright>Jake Lippert 2019</Copyright>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageProjectUrl>https://github.com/Jake-Lippert/Lippert.Dapper</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/Jake-Lippert/Lippert.Dapper</RepositoryUrl>
 		<RepositoryType>GitHub</RepositoryType>
+		<PackageReleaseNotes>0.1.0
+- Initial publish of functionality containing two Dapper type handlers and the ability to run generated queries
+0.2.0
+- Improving query runner ease of use
+- Reducing .Net target framework requirement to 4.5</PackageReleaseNotes>
 	</PropertyGroup>
 
-	<PropertyGroup Condition="'$(TargetFramework)'=='net471'">
-		<DefineConstants>TARGET_FRAMEWORK_NET471</DefineConstants>
-	</PropertyGroup>
-	
 	<ItemGroup>
-		<PackageReference Include="Dapper" Version="1.50.4" />
-		<PackageReference Include="Lippert.Core" Version="0.1.0" />
+		<PackageReference Include="Dapper" Version="1.50.0" />
+		<PackageReference Include="Lippert.Core" Version="0.2.0" />
 		<PackageReference Include="Microsoft.CSharp" Version="4.5.0" />
 	</ItemGroup>
 </Project>
