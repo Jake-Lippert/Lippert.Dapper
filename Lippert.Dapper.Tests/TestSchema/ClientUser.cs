@@ -7,6 +7,6 @@ namespace Lippert.Dapper.Tests.TestSchema
 		public Guid ClientId { get; set; }
 		public Guid UserId { get; set; }
 		public bool IsActive { get; set; }
-		public string Role { get; set; }
-    }
+		public string Role { get; set; } = string.Empty;
+	}
 }

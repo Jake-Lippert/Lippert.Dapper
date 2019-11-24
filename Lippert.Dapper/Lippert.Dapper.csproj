@@ -2,10 +2,12 @@
 	<PropertyGroup>
 		<TargetFrameworks>netstandard2.0;net45</TargetFrameworks>
 		<LangVersion>latest</LangVersion>
+		<Nullable>enable</Nullable>
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 		<PackageId>Lippert.Dapper</PackageId>
-		<Version>0.2.0</Version>
+		<Version>0.3.0</Version>
 		<Authors>Jake Lippert</Authors>
 		<Copyright>Jake Lippert 2019</Copyright>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -16,7 +18,11 @@
 - Initial publish of functionality containing two Dapper type handlers and the ability to run generated queries
 0.2.0
 - Improving query runner ease of use
-- Reducing .Net target framework requirement to 4.5</PackageReleaseNotes>
+- Reducing .Net target framework requirement to 4.5
+0.3.0
+- Adding Get and TryGet extensions for IQueryRunner
+- Building out IDapperWrapper support for querying multiple result objects, multiple-table queries, and single-row queries
+- Enabling nullable reference types and ensuring that warnings are treated as errors</PackageReleaseNotes>
 	</PropertyGroup>
 
 	<ItemGroup>

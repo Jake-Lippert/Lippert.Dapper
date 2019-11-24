@@ -6,6 +6,6 @@ namespace Lippert.Dapper.Tests.TestSchema
 	public class BaseRecord : IGuidIdentifier
 	{
 		public Guid Id { get; set; }
-		public string Name { get; set; }
+		public string Name { get; set; } = string.Empty;
 	}
 }

@@ -39,7 +39,7 @@ namespace Lippert.Dapper
 		/// </summary>
 		/// <returns>All records from the table represented by <typeparamref name="T"/></returns>
 		public IEnumerable<T> Select<T>(IDbTransaction transaction, bool buffered = true, int? commandTimeout = null) =>
-			BuilderSelect(null, new ValuedPredicateBuilder<T>(), transaction, buffered, commandTimeout);
+			BuilderSelect(transaction.Connection, new ValuedPredicateBuilder<T>(), transaction, buffered, commandTimeout);
 		/// <summary>
 		/// Builds and runs a query to select records from the table represented by <typeparamref name="T"/> which match the specified filter
 		/// </summary>
@@ -53,13 +53,13 @@ namespace Lippert.Dapper
 		/// <param name="predicateBuilder">Specifies the predicate for the query's where clause</param>
 		/// <returns>Filtered records from the table represented by <typeparamref name="T"/></returns>
 		public IEnumerable<T> Select<T>(IDbTransaction transaction, Func<ValuedPredicateBuilder<T>, ValuedPredicateBuilder<T>> predicateBuilder, bool buffered = true, int? commandTimeout = null) =>
-			BuilderSelect(null, predicateBuilder(new ValuedPredicateBuilder<T>()), transaction, buffered, commandTimeout);
+			BuilderSelect(transaction.Connection, predicateBuilder(new ValuedPredicateBuilder<T>()), transaction, buffered, commandTimeout);
 		/// <summary>
 		/// Builds and runs a query to select records from the table represented by <typeparamref name="T"/> which match the specified filter
 		/// </summary>
 		/// <param name="predicateBuilder">Specifies the predicate for the query's where clause</param>
 		/// <returns>Filtered records from the table represented by <typeparamref name="T"/></returns>
-		private IEnumerable<T> BuilderSelect<T>(IDbConnection connection, IValuedPredicateBuilder<T> predicateBuilder, IDbTransaction transaction, bool buffered, int? commandTimeout)
+		private IEnumerable<T> BuilderSelect<T>(IDbConnection connection, IValuedPredicateBuilder<T> predicateBuilder, IDbTransaction? transaction, bool buffered, int? commandTimeout)
 		{
 			var dynamicParameters = new DynamicParameters();
 			foreach (var column in predicateBuilder.GetFilterColumns())
@@ -68,7 +68,7 @@ namespace Lippert.Dapper
 			}
 
 			var sql = _queryBuilder.Select(predicateBuilder);
-			return _dapperWrapper.Query<T>(transaction?.Connection ?? connection, sql, dynamicParameters, transaction, buffered, commandTimeout, CommandType.Text);
+			return Query<T>(connection, sql, dynamicParameters, transaction, buffered, commandTimeout);
 		}
 
 
@@ -81,11 +81,11 @@ namespace Lippert.Dapper
 		/// Builds and runs a query to insert the specified record.  All value provided columns will be set before insert; all sql-generated column values will be set upon insert.
 		/// </summary>
 		public void Insert<T>(IDbTransaction transaction, T record, int? commandTimeout = null) =>
-			Insert(null, record, transaction, commandTimeout);
+			Insert(transaction.Connection, record, transaction, commandTimeout);
 		/// <summary>
 		/// Builds and runs a query to insert the specified record.  All value provided columns will be set before insert; all sql-generated column values will be set upon insert.
 		/// </summary>
-		private void Insert<T>(IDbConnection connection, T record, IDbTransaction transaction, int? commandTimeout)
+		private void Insert<T>(IDbConnection connection, T record, IDbTransaction? transaction, int? commandTimeout)
 		{
 			//--Set properties using value providers
 			ColumnValueProvider.ApplyInsertValues(record);
@@ -94,7 +94,7 @@ namespace Lippert.Dapper
 			var sql = _queryBuilder.Insert(tableMap);
 			if (tableMap.GeneratedColumns.Any())
 			{
-				var output = _dapperWrapper.Query<T>(transaction?.Connection ?? connection, sql, record, transaction, commandTimeout: commandTimeout, commandType: CommandType.Text).Single();
+				var output = Query<T>(connection, sql, record, transaction, true, commandTimeout).Single();
 				foreach (var generatedProperty in tableMap.GeneratedColumns.Select(c => c.Property))
 				{
 					generatedProperty.SetValue(record, generatedProperty.GetValue(output));
@@ -102,7 +102,7 @@ namespace Lippert.Dapper
 			}
 			else
 			{
-				_dapperWrapper.Execute(transaction?.Connection ?? connection, sql, record, transaction, commandTimeout: commandTimeout, commandType: CommandType.Text);
+				Execute(connection, sql, record, transaction, commandTimeout);
 			}
 		}
 
@@ -118,18 +118,18 @@ namespace Lippert.Dapper
 		/// </summary>
 		/// <returns>Number of rows affected</returns>
 		public int Update<T>(IDbTransaction transaction, T record, int? commandTimeout = null) =>
-			Update(null, record, transaction, commandTimeout);
+			Update(transaction.Connection, record, transaction, commandTimeout);
 		/// <summary>
 		/// Builds and runs a query to update the specified record.  All value provided columns will be set before update.
 		/// </summary>
 		/// <returns>Number of rows affected</returns>
-		private int Update<T>(IDbConnection connection, T record, IDbTransaction transaction, int? commandTimeout)
+		private int Update<T>(IDbConnection connection, T record, IDbTransaction? transaction, int? commandTimeout)
 		{
 			//--Set properties using value providers
 			ColumnValueProvider.ApplyUpdateValues(record);
 
 			var sql = _queryBuilder.Update<T>();
-			return _dapperWrapper.Execute(transaction?.Connection ?? connection, sql, record, transaction, commandTimeout, CommandType.Text);
+			return Execute(connection, sql, record, transaction, commandTimeout);
 		}
 
 		/// <summary>
@@ -143,12 +143,12 @@ namespace Lippert.Dapper
 		/// </summary>
 		/// <returns>Number of rows affected</returns>
 		public int Update<T>(IDbTransaction transaction, Func<ValuedUpdateBuilder<T>, ValuedUpdateBuilder<T>> updateBuilder, int? commandTimeout = null) =>
-			BuilderUpdate(null, updateBuilder(new ValuedUpdateBuilder<T>()), transaction, commandTimeout);
+			BuilderUpdate(transaction.Connection, updateBuilder(new ValuedUpdateBuilder<T>()), transaction, commandTimeout);
 		/// <summary>
 		/// Builds and runs a query to update the matching records.  All value provided columns will be included in update.
 		/// </summary>
 		/// <returns>Number of rows affected</returns>
-		private int BuilderUpdate<T>(IDbConnection connection, IValuedUpdateBuilder<T> updateBuilder, IDbTransaction transaction, int? commandTimeout)
+		private int BuilderUpdate<T>(IDbConnection connection, IValuedUpdateBuilder<T> updateBuilder, IDbTransaction? transaction, int? commandTimeout)
 		{
 			//--Set properties using value providers
 			ColumnValueProvider.ApplyUpdateBuilderValues(updateBuilder);
@@ -168,7 +168,7 @@ namespace Lippert.Dapper
 			}
 			
 			var sql = _queryBuilder.Update(updateBuilder);
-			return _dapperWrapper.Execute(transaction?.Connection ?? connection, sql, dynamicParameters, transaction, commandTimeout, CommandType.Text);
+			return Execute(connection, sql, dynamicParameters, transaction, commandTimeout);
 		}
 
 		/// <summary>
@@ -184,13 +184,13 @@ namespace Lippert.Dapper
 		/// <param name="predicateBuilder">Specifies the predicate for the query's where clause</param>
 		/// <returns>Number of rows affected</returns>
 		public int Delete<T>(IDbTransaction transaction, Func<ValuedPredicateBuilder<T>, ValuedPredicateBuilder<T>> predicateBuilder, int? commandTimeout = null) =>
-			BuilderDelete(null, predicateBuilder(new ValuedPredicateBuilder<T>()), transaction, commandTimeout);
+			BuilderDelete(transaction.Connection, predicateBuilder(new ValuedPredicateBuilder<T>()), transaction, commandTimeout);
 		/// <summary>
 		/// Builds and runs a query to delete records from the table represented by <typeparamref name="T"/> which match the specified filter
 		/// </summary>
 		/// <param name="predicateBuilder">Specifies the predicate for the query's where clause</param>
 		/// <returns>Number of rows affected</returns>
-		private int BuilderDelete<T>(IDbConnection connection, IValuedPredicateBuilder<T> predicateBuilder, IDbTransaction transaction, int? commandTimeout)
+		private int BuilderDelete<T>(IDbConnection connection, IValuedPredicateBuilder<T> predicateBuilder, IDbTransaction? transaction, int? commandTimeout)
 		{
 			var dynamicParameters = new DynamicParameters();
 			foreach (var column in predicateBuilder.GetFilterColumns())
@@ -199,7 +199,18 @@ namespace Lippert.Dapper
 			}
 
 			var sql = _queryBuilder.Delete(predicateBuilder);
-			return _dapperWrapper.Execute(transaction?.Connection ?? connection, sql, dynamicParameters, transaction, commandTimeout, CommandType.Text);
+			return Execute(connection, sql, dynamicParameters, transaction, commandTimeout);
 		}
+
+		private int Execute(IDbConnection connection, string sql, object? param, IDbTransaction? transaction, int? commandTimeout) => transaction switch
+		{
+			IDbTransaction trans => _dapperWrapper.Execute(trans, sql, param, commandTimeout, CommandType.Text),
+			_ => _dapperWrapper.Execute(connection, sql, param, commandTimeout, CommandType.Text)
+		};
+		private IEnumerable<T> Query<T>(IDbConnection connection, string sql, object? param, IDbTransaction? transaction, bool buffered, int? commandTimeout) => transaction switch
+		{
+			IDbTransaction trans => _dapperWrapper.Query<T>(trans, sql, param, buffered, commandTimeout, CommandType.Text),
+			_ => _dapperWrapper.Query<T>(connection, sql, param, buffered, commandTimeout, CommandType.Text)
+		};
 	}
 }
