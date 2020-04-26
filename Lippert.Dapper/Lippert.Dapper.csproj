@@ -9,7 +9,7 @@
 		<PackageId>Lippert.Dapper</PackageId>
 		<Version>0.3.0</Version>
 		<Authors>Jake Lippert</Authors>
-		<Copyright>Jake Lippert 2019</Copyright>
+		<Copyright>Jake Lippert 2020</Copyright>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageProjectUrl>https://github.com/Jake-Lippert/Lippert.Dapper</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/Jake-Lippert/Lippert.Dapper</RepositoryUrl>
@@ -22,12 +22,13 @@
 0.3.0
 - Adding Get and TryGet extensions for IQueryRunner
 - Building out IDapperWrapper support for querying multiple result objects, multiple-table queries, and single-row queries
-- Enabling nullable reference types and ensuring that warnings are treated as errors</PackageReleaseNotes>
+- Enabling nullable reference types and ensuring that warnings are treated as errors
+- QueryRunner can now insert/update records in bulk by using a sql merge statement; upon insert, read all of the generated values and apply them to the inserted objects</PackageReleaseNotes>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="Dapper" Version="1.50.0" />
-		<PackageReference Include="Lippert.Core" Version="0.2.0" />
+		<PackageReference Include="Lippert.Core" Version="0.4.0" />
 		<PackageReference Include="Microsoft.CSharp" Version="4.5.0" />
 	</ItemGroup>
 </Project>

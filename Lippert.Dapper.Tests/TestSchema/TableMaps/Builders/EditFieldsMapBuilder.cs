@@ -17,12 +17,12 @@ namespace Lippert.Dapper.Tests.TestSchema.TableMaps.Builders
 		}
 		
 
-		public override List<(PropertyInfo column, object value)> GetInsertValues() => new List<(PropertyInfo column, object value)>
+		public override List<(PropertyInfo column, object? value)> GetInsertValues() => new List<(PropertyInfo column, object? value)>
 		{
 			SetValue(x => x.ModifiedByUserId, ClaimsProvider.UserClaims.UserId)
 		};
 
-		public override List<(PropertyInfo column, object value)> GetUpdateValues() => new List<(PropertyInfo column, object value)>
+		public override List<(PropertyInfo column, object? value)> GetUpdateValues() => new List<(PropertyInfo column, object? value)>
 		{
 			SetValue(x => x.ModifiedByUserId, ClaimsProvider.UserClaims.UserId),
 			SetValue(x => x.ModifiedDateUtc, DateTime.UtcNow)

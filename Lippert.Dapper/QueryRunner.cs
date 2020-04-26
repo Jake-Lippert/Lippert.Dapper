@@ -2,10 +2,13 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
+using System.Xml.Linq;
 using Dapper;
+using Lippert.Core.Collections.Extensions;
 using Lippert.Core.Data;
 using Lippert.Core.Data.QueryBuilders;
 using Lippert.Core.Data.QueryBuilders.Contracts;
+using Newtonsoft.Json;
 
 namespace Lippert.Dapper
 {
@@ -14,7 +17,11 @@ namespace Lippert.Dapper
 	/// </summary>
 	public class QueryRunner : Contracts.IQueryRunner
 	{
-		private readonly SqlServerQueryBuilder _queryBuilder = new SqlServerQueryBuilder();
+		private readonly SqlServerSelectQueryBuilder _selectQueryBuilder = new SqlServerSelectQueryBuilder();
+		private readonly SqlServerInsertQueryBuilder _insertQueryBuilder = new SqlServerInsertQueryBuilder();
+		private readonly SqlServerUpdateQueryBuilder _updateQueryBuilder = new SqlServerUpdateQueryBuilder();
+		private readonly SqlServerDeleteQueryBuilder _deleteQueryBuilder = new SqlServerDeleteQueryBuilder();
+		private readonly SqlServerMergeQueryBuilder _mergeQueryBuilder = new SqlServerMergeQueryBuilder();
 		private readonly Contracts.IDapperWrapper _dapperWrapper;
 
 		/// <summary>
@@ -67,7 +74,7 @@ namespace Lippert.Dapper
 				dynamicParameters.Add(column.ColumnName, column.Value);
 			}
 
-			var sql = _queryBuilder.Select(predicateBuilder);
+			var sql = _selectQueryBuilder.Select(predicateBuilder);
 			return Query<T>(connection, sql, dynamicParameters, transaction, buffered, commandTimeout);
 		}
 
@@ -91,7 +98,7 @@ namespace Lippert.Dapper
 			ColumnValueProvider.ApplyInsertValues(record);
 
 			var tableMap = SqlServerQueryBuilder.GetTableMap<T>();
-			var sql = _queryBuilder.Insert(tableMap);
+			var sql = _insertQueryBuilder.Insert(tableMap);
 			if (tableMap.GeneratedColumns.Any())
 			{
 				var output = Query<T>(connection, sql, record, transaction, true, commandTimeout).Single();
@@ -128,7 +135,7 @@ namespace Lippert.Dapper
 			//--Set properties using value providers
 			ColumnValueProvider.ApplyUpdateValues(record);
 
-			var sql = _queryBuilder.Update<T>();
+			var sql = _updateQueryBuilder.Update<T>();
 			return Execute(connection, sql, record, transaction, commandTimeout);
 		}
 
@@ -167,7 +174,7 @@ namespace Lippert.Dapper
 				dynamicParameters.Add(underscoreRequired ? $"_{column.ColumnName}" : column.ColumnName, column.Value);
 			}
 			
-			var sql = _queryBuilder.Update(updateBuilder);
+			var sql = _updateQueryBuilder.Update(updateBuilder);
 			return Execute(connection, sql, dynamicParameters, transaction, commandTimeout);
 		}
 
@@ -198,8 +205,84 @@ namespace Lippert.Dapper
 				dynamicParameters.Add(column.ColumnName, column.Value);
 			}
 
-			var sql = _queryBuilder.Delete(predicateBuilder);
+			var sql = _deleteQueryBuilder.Delete(predicateBuilder);
 			return Execute(connection, sql, dynamicParameters, transaction, commandTimeout);
+		}
+
+		public void Merge<T>(IDbConnection connection, IEnumerable<T> records, SqlOperation mergeOperations, bool buffered = true, int? commandTimeout = null, bool useJson = false) =>
+			Merge(connection, records, null, mergeOperations, buffered, commandTimeout, useJson);
+		public void Merge<T>(IDbTransaction transaction, IEnumerable<T> records, SqlOperation mergeOperations, bool buffered = true, int? commandTimeout = null, bool useJson = false) =>
+			Merge(transaction.Connection, records, transaction, mergeOperations, buffered, commandTimeout, useJson);
+		private void Merge<T>(IDbConnection connection, IEnumerable<T> records, IDbTransaction? transaction, SqlOperation mergeOperations, bool buffered, int? commandTimeout, bool useJson)
+		{
+			var workingRecords = records.Select(record =>
+			{
+				//--Set properties using value providers
+				if (mergeOperations.HasFlag(SqlOperation.Update))
+				{
+					ColumnValueProvider.ApplyUpdateValues(record);
+				}
+				if (mergeOperations.HasFlag(SqlOperation.Insert))
+				{
+					ColumnValueProvider.ApplyInsertValues(record);
+				}
+
+				return record;
+			}).ToList();
+
+			string sql, serialized;
+			var tableMap = SqlServerQueryBuilder.GetTableMap<T>();
+			if (useJson)
+			{
+				Console.WriteLine(sql = _mergeQueryBuilder.Merge(converter: out var converter, mergeOperations, tableMap));
+				Console.WriteLine(serialized = JsonConvert.SerializeObject(workingRecords, converter));
+			}
+			else
+			{
+				Console.WriteLine(sql = _mergeQueryBuilder.Merge(aliases: out var aliases, mergeOperations, tableMap, useJson: useJson));
+				Console.WriteLine();
+
+				var toSerialize = new XElement("_");
+				foreach (var (wr, index) in workingRecords.Indexed())
+				{
+					var xmlRecord = new XElement("_", new XAttribute("_", index));
+					foreach (var a in aliases)
+					{
+						xmlRecord.Add(new XAttribute($"_{a.Value}", a.Key.GetValue(wr)));
+					}
+
+					toSerialize.Add(xmlRecord);
+				}
+				Console.WriteLine(serialized = toSerialize.ToString());
+			}
+
+			if (mergeOperations.HasFlag(SqlOperation.Insert))
+			{
+				var output = (transaction switch
+				{
+					IDbTransaction trans => _dapperWrapper.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, T>(trans, sql, new { serialized }, buffered, SqlServerQueryBuilder.SplitOn, commandTimeout),
+					_ => _dapperWrapper.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, T>(connection, sql, new { serialized }, buffered, SqlServerQueryBuilder.SplitOn, commandTimeout)
+				}).ToDictionary(x => x.Item1.CorrelationIndex, x => (x.Item1.Action, Record: x.Item2));
+
+				foreach (var (record, index) in workingRecords.Indexed())
+				{
+					if (output.TryGetValue(index, out var recordAction) && recordAction is ("INSERT", { } insertedRecord))
+					{
+						foreach (var generatedProperty in tableMap.GeneratedColumns.Select(c => c.Property))
+						{
+							generatedProperty.SetValue(record, generatedProperty.GetValue(insertedRecord));
+						}
+					}
+				}
+			}
+			else if (transaction is IDbTransaction trans)
+			{
+				_dapperWrapper.Execute(trans, sql, new { serialized }, commandTimeout);
+			}
+			else
+			{
+				_dapperWrapper.Execute(connection, sql, new { serialized }, commandTimeout);
+			}
 		}
 
 		private int Execute(IDbConnection connection, string sql, object? param, IDbTransaction? transaction, int? commandTimeout) => transaction switch

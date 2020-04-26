@@ -1,8 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using Dapper;
 using Lippert.Core.Configuration;
+using Lippert.Core.Data;
+using Lippert.Core.Data.QueryBuilders;
 using Lippert.Dapper.Tests.TestSchema;
 using Lippert.Dapper.Tests.TestSchema.Contracts;
 using Moq;
@@ -222,7 +225,7 @@ namespace Lippert.Dapper.Tests
 					var lines = SplitQuery(sql);
 					Assert.AreEqual(3, lines.Length);
 					Assert.AreEqual("insert into [BaseRecord]([Name])", lines[0]);
-					Assert.AreEqual("ouput inserted.[Id]", lines[1]);
+					Assert.AreEqual("output inserted.[Id]", lines[1]);
 					Assert.AreEqual("values(@Name)", lines[2]);
 
 					Assert.AreSame(_dbConnectionMock, conn);
@@ -259,7 +262,7 @@ namespace Lippert.Dapper.Tests
 					var lines = SplitQuery(sql);
 					Assert.AreEqual(3, lines.Length);
 					Assert.AreEqual("insert into [Employee]([UserId], [CompanyId], [CreatedByUserId])", lines[0]);
-					Assert.AreEqual("ouput inserted.[CreatedDateUtc]", lines[1]);
+					Assert.AreEqual("output inserted.[CreatedDateUtc]", lines[1]);
 					Assert.AreEqual("values(@UserId, @CompanyId, @CreatedByUserId)", lines[2]);
 
 					Assert.AreSame(_dbConnectionMock, transaction.Connection);
@@ -734,6 +737,98 @@ namespace Lippert.Dapper.Tests
 
 			//--Assert
 			_dapperMock.Verify(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<int?>(), It.IsAny<CommandType>()));
+		}
+
+
+		[Test]
+		public void TestMerge([Values(true, false)] bool includeInsert, [Values(true, false)] bool includeUpdate, [Values(true, false)] bool useJson)
+		{
+			//--Arrange
+			var records = new[]
+			{
+				new Client
+				{
+					Name = "Name 0",
+					IsActive = true
+				},
+				new Client
+				{
+					Name = "Name 1",
+					IsActive = true
+				},
+				new Client
+				{
+					Name = "Name 2",
+					IsActive = false
+				}
+			};
+
+			var mergeOperations = (includeInsert ? SqlOperation.Insert : 0) | (includeUpdate ? SqlOperation.Update : 0);
+
+			IEnumerable<Tuple<SqlServerMergeQueryBuilder.RecordMergeCorrelation, Client>> ReturnRecords(IDbConnection conn, string sql, object? param)
+			{
+				//--Assert
+				Console.WriteLine(sql);
+				var lines = SplitQuery(sql);
+				Assert.AreEqual("merge [Client] as target", lines[useJson ? 0 : 2]);
+				Assert.AreEqual($"using (select * from open{(useJson ? "Json(@serialized)" : "Xml(@preparedDoc, '/_/_')")} with (", lines[useJson ? 1 : 3]);
+				StringAssert.Contains(")) as source on (target.[Id] = source.[Id])", sql);
+				if (includeInsert)
+				{
+					StringAssert.Contains("when not matched by target then insert(", sql);
+				}
+				if (includeUpdate)
+				{
+					StringAssert.Contains("when matched then update set", sql);
+				}
+
+				Assert.AreSame(_dbConnectionMock, conn);
+
+				Console.WriteLine();
+				var serialized = (string)param!.GetType().GetProperty("serialized").GetValue(param);
+				Assert.IsNotNull(serialized);
+				Console.WriteLine(serialized);
+				//Assert.AreEqual("[{},{},{}]", serialized);
+
+				return records.Select((r, i) => new Tuple<SqlServerMergeQueryBuilder.RecordMergeCorrelation, Client>(new SqlServerMergeQueryBuilder.RecordMergeCorrelation
+				{
+					CorrelationIndex = i
+				}, r));
+			}
+
+			if (includeInsert)
+			{
+				//--Mock
+				_dapperMock.Setup(x => x.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, Client>(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<CommandType?>()))
+					.Returns((IDbConnection conn, string sql, object? param, bool isBuffered, string splitOn, int? commandTimeout, CommandType? commandType) =>
+					{
+						Assert.AreEqual(SqlServerQueryBuilder.SplitOn, splitOn);
+						return ReturnRecords(conn, sql, param);
+					});
+
+				//--Act
+				_queryRunner.Merge(_dbConnectionMock, records, mergeOperations, useJson: useJson);
+
+				//--Assert
+				_dapperMock.Verify(x => x.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, Client>(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<CommandType?>()));
+			}
+			else if (includeUpdate)
+			{
+				//--Mock
+				_dapperMock.Setup(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<int?>(), It.IsAny<CommandType?>()))
+					.Callback((IDbConnection conn, string sql, object? param, int? commandTimeout, CommandType? commandType) => ReturnRecords(conn, sql, param));
+
+				//--Act
+				_queryRunner.Merge(_dbConnectionMock, records, mergeOperations, useJson: useJson);
+
+				//--Assert
+				_dapperMock.Verify(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<int?>(), It.IsAny<CommandType?>()));
+			}
+			else
+			{
+				//--Act/Assert
+				Assert.Throws<ArgumentException>(() => _queryRunner.Merge(_dbConnectionMock, records, mergeOperations));
+			}
 		}
 
 
