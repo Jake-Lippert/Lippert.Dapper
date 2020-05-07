@@ -1,10 +1,9 @@
-﻿using System;
-
-namespace Lippert.Dapper.Tests.TestSchema
+﻿namespace Lippert.Dapper.Tests.TestSchema
 {
 	public class SuperEmployee : Employee
 	{
-		public Guid EmployeeId { get; set; }
-		public string SomeAwesomeField { get; set; } = Guid.NewGuid().ToString();
+		public System.Guid EmployeeId { get; set; }
+		public string? SomeAwesomeFieldA { get; set; }
+		public string? SomeAwesomeFieldB { get; set; }
 	}
 }

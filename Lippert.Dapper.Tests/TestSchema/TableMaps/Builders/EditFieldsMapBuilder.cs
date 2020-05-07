@@ -1,6 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Reflection;
 using Lippert.Core.Data;
 using Lippert.Core.Data.Contracts;
 using Lippert.Dapper.Tests.TestSchema.Contracts;
@@ -17,15 +15,15 @@ namespace Lippert.Dapper.Tests.TestSchema.TableMaps.Builders
 		}
 		
 
-		public override List<(PropertyInfo column, object? value)> GetInsertValues() => new List<(PropertyInfo column, object? value)>
+		public override void SetInsertValues(IEditFields record)
 		{
-			SetValue(x => x.ModifiedByUserId, ClaimsProvider.UserClaims.UserId)
-		};
+			record.ModifiedByUserId = ClaimsProvider.UserClaims.UserId;
+		}
 
-		public override List<(PropertyInfo column, object? value)> GetUpdateValues() => new List<(PropertyInfo column, object? value)>
+		public override void SetUpdateValues(IEditFields record)
 		{
-			SetValue(x => x.ModifiedByUserId, ClaimsProvider.UserClaims.UserId),
-			SetValue(x => x.ModifiedDateUtc, DateTime.UtcNow)
-		};
+			record.ModifiedByUserId = ClaimsProvider.UserClaims.UserId;
+			record.ModifiedDateUtc = DateTime.UtcNow;
+		}
 	}
 }

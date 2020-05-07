@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using Lippert.Core.Data;
 using Lippert.Core.Data.QueryBuilders;
 
 namespace Lippert.Dapper.Contracts
@@ -56,12 +57,14 @@ namespace Lippert.Dapper.Contracts
 		/// Builds and runs a query to update the matching records.  All value provided columns will be included in update.
 		/// </summary>
 		/// <returns>Number of rows affected</returns>
-		int Update<T>(IDbConnection connection, Func<ValuedUpdateBuilder<T>, ValuedUpdateBuilder<T>> updateBuilder, int? commandTimeout = null);
+		int Update<T>(IDbConnection connection, Func<ValuedUpdateBuilder<T>, ValuedUpdateBuilder<T>> updateBuilder, int? commandTimeout = null)
+			where T : new();
 		/// <summary>
 		/// Builds and runs a query to update the matching records.  All value provided columns will be included in update.
 		/// </summary>
 		/// <returns>Number of rows affected</returns>
-		int Update<T>(IDbTransaction transaction, Func<ValuedUpdateBuilder<T>, ValuedUpdateBuilder<T>> updateBuilder, int? commandTimeout = null);
+		int Update<T>(IDbTransaction transaction, Func<ValuedUpdateBuilder<T>, ValuedUpdateBuilder<T>> updateBuilder, int? commandTimeout = null)
+			where T : new();
 
 		/// <summary>
 		/// Builds and runs a query to delete records from the table represented by <typeparamref name="T"/> which match the specified filter
@@ -75,5 +78,14 @@ namespace Lippert.Dapper.Contracts
 		/// <param name="predicateBuilder">Specifies the predicate for the query's where clause</param>
 		/// <returns>Number of rows affected</returns>
 		int Delete<T>(IDbTransaction transaction, Func<ValuedPredicateBuilder<T>, ValuedPredicateBuilder<T>> predicateBuilder, int? commandTimeout = null);
+
+		/// <summary>
+		/// Builds and runs a query to merge records for the table represented by <typeparamref name="T"/>
+		/// </summary>
+		void Merge<T>(IDbConnection connection, IEnumerable<T> records, SqlOperation mergeOperations, bool buffered = true, int? commandTimeout = null, bool useJson = false);
+		/// <summary>
+		/// Builds and runs a query to merge records for the table represented by <typeparamref name="T"/>
+		/// </summary>
+		void Merge<T>(IDbTransaction transaction, IEnumerable<T> records, SqlOperation mergeOperations, bool buffered = true, int? commandTimeout = null, bool useJson = false);
 	}
 }

@@ -143,29 +143,46 @@ namespace Lippert.Dapper
 		/// Builds and runs a query to update the matching records.  All value provided columns will be included in update.
 		/// </summary>
 		/// <returns>Number of rows affected</returns>
-		public int Update<T>(IDbConnection connection, Func<ValuedUpdateBuilder<T>, ValuedUpdateBuilder<T>> updateBuilder, int? commandTimeout = null) =>
-			BuilderUpdate(connection, updateBuilder(new ValuedUpdateBuilder<T>()), null, commandTimeout);
+		public int Update<T>(IDbConnection connection, Func<ValuedUpdateBuilder<T>, ValuedUpdateBuilder<T>> updateBuilder, int? commandTimeout = null)
+			where T : new() => BuilderUpdate(connection, updateBuilder(new ValuedUpdateBuilder<T>()), null, commandTimeout);
 		/// <summary>
 		/// Builds and runs a query to update the matching records.  All value provided columns will be included in update.
 		/// </summary>
 		/// <returns>Number of rows affected</returns>
-		public int Update<T>(IDbTransaction transaction, Func<ValuedUpdateBuilder<T>, ValuedUpdateBuilder<T>> updateBuilder, int? commandTimeout = null) =>
-			BuilderUpdate(transaction.Connection, updateBuilder(new ValuedUpdateBuilder<T>()), transaction, commandTimeout);
+		public int Update<T>(IDbTransaction transaction, Func<ValuedUpdateBuilder<T>, ValuedUpdateBuilder<T>> updateBuilder, int? commandTimeout = null)
+			where T : new() => BuilderUpdate(transaction.Connection, updateBuilder(new ValuedUpdateBuilder<T>()), transaction, commandTimeout);
 		/// <summary>
 		/// Builds and runs a query to update the matching records.  All value provided columns will be included in update.
 		/// </summary>
 		/// <returns>Number of rows affected</returns>
 		private int BuilderUpdate<T>(IDbConnection connection, IValuedUpdateBuilder<T> updateBuilder, IDbTransaction? transaction, int? commandTimeout)
+			where T : new()
 		{
-			//--Set properties using value providers
-			ColumnValueProvider.ApplyUpdateBuilderValues(updateBuilder);
+			//--Create a new T and record the original property values...
+			var record = new T();
+			var originalValues = updateBuilder.TableMap.UpdateColumns.ToDictionary(x => x.Property, x => x.Property.GetValue(record));
 
+			//--Set properties using value providers
+			ColumnValueProvider.ApplyUpdateValues(record);
+
+			//--...and then figure out which values changed;
+			//	Set the values for update which have changed
+			foreach (var (property, original, current) in originalValues.Select(x => (x.Key, x.Value, x.Key.GetValue(record))))
+			{
+				if (!Equals(original, current))
+				{
+					updateBuilder.Set(property, current);
+				}
+			}
+
+			//--Add where clause parameters/values
 			var dynamicParameters = new DynamicParameters();
 			foreach (var column in updateBuilder.GetFilterColumns())
 			{
 				dynamicParameters.Add(column.ColumnName, column.Value);
 			}
 
+			//--Add set clause parameters/values
 			var underscoreRequired = updateBuilder.GetFilterColumns().Select(fc => fc.ColumnName)
 				.Intersect(updateBuilder.GetSetColumns().Select(sc => sc.ColumnName))
 				.Any();
@@ -209,10 +226,19 @@ namespace Lippert.Dapper
 			return Execute(connection, sql, dynamicParameters, transaction, commandTimeout);
 		}
 
+		/// <summary>
+		/// Builds and runs a query to merge records for the table represented by <typeparamref name="T"/>
+		/// </summary>
 		public void Merge<T>(IDbConnection connection, IEnumerable<T> records, SqlOperation mergeOperations, bool buffered = true, int? commandTimeout = null, bool useJson = false) =>
 			Merge(connection, records, null, mergeOperations, buffered, commandTimeout, useJson);
+		/// <summary>
+		/// Builds and runs a query to merge records for the table represented by <typeparamref name="T"/>
+		/// </summary>
 		public void Merge<T>(IDbTransaction transaction, IEnumerable<T> records, SqlOperation mergeOperations, bool buffered = true, int? commandTimeout = null, bool useJson = false) =>
 			Merge(transaction.Connection, records, transaction, mergeOperations, buffered, commandTimeout, useJson);
+		/// <summary>
+		/// Builds and runs a query to merge records for the table represented by <typeparamref name="T"/>
+		/// </summary>
 		private void Merge<T>(IDbConnection connection, IEnumerable<T> records, IDbTransaction? transaction, SqlOperation mergeOperations, bool buffered, int? commandTimeout, bool useJson)
 		{
 			var workingRecords = records.Select(record =>
@@ -234,26 +260,29 @@ namespace Lippert.Dapper
 			var tableMap = SqlServerQueryBuilder.GetTableMap<T>();
 			if (useJson)
 			{
-				Console.WriteLine(sql = _mergeQueryBuilder.Merge(converter: out var converter, mergeOperations, tableMap));
-				Console.WriteLine(serialized = JsonConvert.SerializeObject(workingRecords, converter));
+				sql = _mergeQueryBuilder.Merge(converter: out var converter, mergeOperations, tableMap);
+				serialized = JsonConvert.SerializeObject(workingRecords, converter);
 			}
 			else
 			{
-				Console.WriteLine(sql = _mergeQueryBuilder.Merge(aliases: out var aliases, mergeOperations, tableMap, useJson: useJson));
-				Console.WriteLine();
+				sql = _mergeQueryBuilder.Merge(aliases: out var aliases, mergeOperations, tableMap, useJson: useJson);
 
 				var toSerialize = new XElement("_");
 				foreach (var (wr, index) in workingRecords.Indexed())
 				{
 					var xmlRecord = new XElement("_", new XAttribute("_", index));
-					foreach (var a in aliases)
+					foreach (var (key, value) in aliases.Select(a => (a.Value, a.Key.GetValue(wr))))
 					{
-						xmlRecord.Add(new XAttribute($"_{a.Value}", a.Key.GetValue(wr)));
+						//--Don't serialize null values
+						if (value != null)
+						{
+							xmlRecord.Add(new XAttribute($"_{key}", value));
+						}
 					}
 
 					toSerialize.Add(xmlRecord);
 				}
-				Console.WriteLine(serialized = toSerialize.ToString());
+				serialized = toSerialize.ToString();
 			}
 
 			if (mergeOperations.HasFlag(SqlOperation.Insert))

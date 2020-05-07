@@ -610,6 +610,47 @@ namespace Lippert.Dapper.Tests
 			_dapperMock.Verify(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<int?>(), It.IsAny<CommandType>()));
 		}
 
+		[Test]
+		public void TestUpdatePartialRecordDoesntUpdatePropertyThatRemainsNull()
+		{
+			//--Arrange
+			var toUpate = new SuperEmployee { Id = Guid.NewGuid(), SomeAwesomeFieldA = Guid.NewGuid().ToString() };
+			var newAwesomeField = Guid.NewGuid().ToString();
+			var now = DateTime.UtcNow;
+
+			//--Mock
+			_dapperMock.Setup(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<int?>(), It.IsAny<CommandType>()))
+				.Returns((IDbConnection conn, string sql, object param, int? commandTimeout, CommandType? commandType) =>
+				{
+					//--Assert
+					Console.WriteLine(sql);
+					var lines = SplitQuery(sql);
+					Assert.AreEqual(3, lines.Length);
+					Assert.AreEqual("update [SuperEmployee]", lines[0]);
+					Assert.AreEqual("set [SomeAwesomeFieldA] = @SomeAwesomeFieldA", lines[1]);
+					Assert.AreEqual("where [EmployeeId] = @EmployeeId", lines[2]);
+
+					Assert.AreSame(_dbConnectionMock, conn);
+
+					var dynamicParam = (DynamicParameters)param;
+					Assert.IsNotNull(dynamicParam);
+					Assert.AreEqual(2, dynamicParam.ParameterNames.Count());
+					CollectionAssert.Contains(dynamicParam.ParameterNames, nameof(SuperEmployee.EmployeeId));
+					Assert.AreEqual(toUpate.EmployeeId, dynamicParam.Get<Guid>(nameof(SuperEmployee.EmployeeId)));
+					CollectionAssert.Contains(dynamicParam.ParameterNames, nameof(SuperEmployee.SomeAwesomeFieldA));
+					Assert.AreEqual(newAwesomeField, dynamicParam.Get<string?>(nameof(SuperEmployee.SomeAwesomeFieldA)));
+
+					return 1;
+				});
+
+			//--Act
+			var updates = _queryRunner.Update<SuperEmployee>(_dbConnectionMock, ub => ub.Set(x => x.SomeAwesomeFieldA, newAwesomeField).Key(toUpate));
+
+			//--Assert
+			Assert.AreEqual(1, updates);
+			_dapperMock.Verify(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<int?>(), It.IsAny<CommandType>()));
+		}
+
 
 		[Test]
 		public void TestDeleteBySingleId([Values(0, 1, 2)] int idParameter)
@@ -829,6 +870,62 @@ namespace Lippert.Dapper.Tests
 				//--Act/Assert
 				Assert.Throws<ArgumentException>(() => _queryRunner.Merge(_dbConnectionMock, records, mergeOperations));
 			}
+		}
+
+		[Test]
+		public void TestNullValueExcludedFromXmlMergeSerialization()
+		{
+			//--Arrange
+			var idA = Guid.NewGuid();
+			var idB = Guid.NewGuid();
+			var records = new[]
+			{
+				new SuperEmployee
+				{
+					EmployeeId = idA,
+					SomeAwesomeFieldA = "Name A",
+					SomeAwesomeFieldB = null
+				},
+				new SuperEmployee
+				{
+					EmployeeId = idB,
+					SomeAwesomeFieldA = null,
+					SomeAwesomeFieldB = "Name B"
+				}
+			};
+
+			var mergeOperations = SqlOperation.Insert | SqlOperation.Update;
+
+			IEnumerable<Tuple<SqlServerMergeQueryBuilder.RecordMergeCorrelation, SuperEmployee>> ReturnRecords(IDbConnection conn, string sql, object? param)
+			{
+				//--Assert
+				Assert.AreSame(_dbConnectionMock, conn);
+
+				Console.WriteLine();
+				var serialized = (string)param!.GetType().GetProperty("serialized").GetValue(param);
+				Assert.IsNotNull(serialized);
+				Console.WriteLine(serialized);
+				Assert.AreEqual($"<_>\r\n  <_ _=\"0\" _0=\"{idA}\" _1=\"Name A\" />\r\n  <_ _=\"1\" _0=\"{idB}\" _2=\"Name B\" />\r\n</_>", serialized);
+
+				return records.Select((r, i) => new Tuple<SqlServerMergeQueryBuilder.RecordMergeCorrelation, SuperEmployee>(new SqlServerMergeQueryBuilder.RecordMergeCorrelation
+				{
+					CorrelationIndex = i
+				}, r));
+			}
+
+			//--Mock
+			_dapperMock.Setup(x => x.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, SuperEmployee>(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<CommandType?>()))
+				.Returns((IDbConnection conn, string sql, object? param, bool isBuffered, string splitOn, int? commandTimeout, CommandType? commandType) =>
+				{
+					Assert.AreEqual(SqlServerQueryBuilder.SplitOn, splitOn);
+					return ReturnRecords(conn, sql, param);
+				});
+
+			//--Act
+			_queryRunner.Merge(_dbConnectionMock, records, mergeOperations, useJson: false);
+
+			//--Assert
+			_dapperMock.Verify(x => x.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, SuperEmployee>(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<CommandType?>()));
 		}
 
 

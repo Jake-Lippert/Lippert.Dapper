@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-using System.Reflection;
-using Lippert.Core.Data;
+﻿using Lippert.Core.Data;
 using Lippert.Core.Data.Contracts;
 using Lippert.Dapper.Tests.TestSchema.Contracts;
 using Lippert.Dapper.Tests.TestSchema.TableMaps.ColumnValueProviders;
@@ -16,9 +14,9 @@ namespace Lippert.Dapper.Tests.TestSchema.TableMaps.Builders
 		}
 
 
-		public override List<(PropertyInfo column, object? value)> GetInsertValues() => new List<(PropertyInfo column, object? value)>
+		public override void SetInsertValues(ICreateFields record)
 		{
-			SetValue(x => x.CreatedByUserId, ClaimsProvider.UserClaims.UserId)
-		};
+			record.CreatedByUserId = ClaimsProvider.UserClaims.UserId;
+		}
 	}
 }
