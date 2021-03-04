@@ -872,62 +872,6 @@ namespace Lippert.Dapper.Tests
 			}
 		}
 
-		[Test]
-		public void TestNullValueExcludedFromXmlMergeSerialization()
-		{
-			//--Arrange
-			var idA = Guid.NewGuid();
-			var idB = Guid.NewGuid();
-			var records = new[]
-			{
-				new SuperEmployee
-				{
-					EmployeeId = idA,
-					SomeAwesomeFieldA = "Name A",
-					SomeAwesomeFieldB = null
-				},
-				new SuperEmployee
-				{
-					EmployeeId = idB,
-					SomeAwesomeFieldA = null,
-					SomeAwesomeFieldB = "Name B"
-				}
-			};
-
-			var mergeOperations = SqlOperation.Insert | SqlOperation.Update;
-
-			IEnumerable<Tuple<SqlServerMergeQueryBuilder.RecordMergeCorrelation, SuperEmployee>> ReturnRecords(IDbConnection conn, string sql, object? param)
-			{
-				//--Assert
-				Assert.AreSame(_dbConnectionMock, conn);
-
-				Console.WriteLine();
-				var serialized = (string)param!.GetType().GetProperty("serialized").GetValue(param);
-				Assert.IsNotNull(serialized);
-				Console.WriteLine(serialized);
-				Assert.AreEqual($"<_>\r\n  <_ _=\"0\" _0=\"{idA}\" _1=\"Name A\" />\r\n  <_ _=\"1\" _0=\"{idB}\" _2=\"Name B\" />\r\n</_>", serialized);
-
-				return records.Select((r, i) => new Tuple<SqlServerMergeQueryBuilder.RecordMergeCorrelation, SuperEmployee>(new SqlServerMergeQueryBuilder.RecordMergeCorrelation
-				{
-					CorrelationIndex = i
-				}, r));
-			}
-
-			//--Mock
-			_dapperMock.Setup(x => x.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, SuperEmployee>(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<CommandType?>()))
-				.Returns((IDbConnection conn, string sql, object? param, bool isBuffered, string splitOn, int? commandTimeout, CommandType? commandType) =>
-				{
-					Assert.AreEqual(SqlServerQueryBuilder.SplitOn, splitOn);
-					return ReturnRecords(conn, sql, param);
-				});
-
-			//--Act
-			_queryRunner.Merge(_dbConnectionMock, records, mergeOperations, useJson: false);
-
-			//--Assert
-			_dapperMock.Verify(x => x.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, SuperEmployee>(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<CommandType?>()));
-		}
-
 
 		public class GuidIdentifier
 		{

@@ -256,34 +256,9 @@ namespace Lippert.Dapper
 				return record;
 			}).ToList();
 
-			string sql, serialized;
 			var tableMap = SqlServerQueryBuilder.GetTableMap<T>();
-			if (useJson)
-			{
-				sql = _mergeQueryBuilder.Merge(converter: out var converter, mergeOperations, tableMap);
-				serialized = JsonConvert.SerializeObject(workingRecords, converter);
-			}
-			else
-			{
-				sql = _mergeQueryBuilder.Merge(aliases: out var aliases, mergeOperations, tableMap, useJson: useJson);
-
-				var toSerialize = new XElement("_");
-				foreach (var (wr, index) in workingRecords.Indexed())
-				{
-					var xmlRecord = new XElement("_", new XAttribute("_", index));
-					foreach (var (key, value) in aliases.Select(a => (a.Value, a.Key.GetValue(wr))))
-					{
-						//--Don't serialize null values
-						if (value != null)
-						{
-							xmlRecord.Add(new XAttribute($"_{key}", value));
-						}
-					}
-
-					toSerialize.Add(xmlRecord);
-				}
-				serialized = toSerialize.ToString();
-			}
+			var sql = _mergeQueryBuilder.Merge(out var mergeSerializer, mergeOperations, tableMap, useJson);
+			var serialized = mergeSerializer.SerializeForMerge(records);
 
 			if (mergeOperations.HasFlag(SqlOperation.Insert))
 			{

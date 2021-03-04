@@ -7,9 +7,9 @@
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 		<PackageId>Lippert.Dapper</PackageId>
-		<Version>0.4.0</Version>
+		<Version>0.5.0</Version>
 		<Authors>Jake Lippert</Authors>
-		<Copyright>Jake Lippert 2020</Copyright>
+		<Copyright>Jake Lippert 2021</Copyright>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageProjectUrl>https://github.com/Jake-Lippert/Lippert.Dapper</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/Jake-Lippert/Lippert.Dapper</RepositoryUrl>
@@ -27,12 +27,15 @@
 0.4.0
 - Updating BuilderUpdate to apply update values based upon those set on a dummy record
 - No longer attempting to add xml attributes for null values
-- Adding missing Merge to IQueryRunner</PackageReleaseNotes>
+- Adding missing Merge to IQueryRunner
+0.5.0
+- Adding IQueryRunner Upsert extension
+- Refactoring merge record xml serialization down into Lippert.Core</PackageReleaseNotes>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="Dapper" Version="1.50.0" />
-		<PackageReference Include="Lippert.Core" Version="0.5.0" />
+		<PackageReference Include="Lippert.Core" Version="0.6.0" />
 		<PackageReference Include="Microsoft.CSharp" Version="4.5.0" />
 	</ItemGroup>
 </Project>
