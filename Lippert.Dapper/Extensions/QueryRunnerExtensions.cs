@@ -1,6 +1,5 @@
 ﻿using System.Data;
 using System.Linq;
-using Lippert.Core.Data;
 using Lippert.Dapper.Contracts;
 
 namespace Lippert.Dapper.Extensions
@@ -247,11 +246,11 @@ namespace Lippert.Dapper.Extensions
 		/// Builds and runs a query to upsert the record into the table represented by <typeparamref name="T"/> using a sql merge
 		/// </summary>
 		public static void Upsert<T>(this IQueryRunner queryRunner, IDbConnection connection, T record, bool buffered = true, int? commandTimeout = null, bool useJson = false) =>
-			queryRunner.Merge(connection, new[] { record }, SqlOperation.Insert | SqlOperation.Update, buffered, commandTimeout, useJson);
+			queryRunner.Merge(connection, new[] { record }, x => x.Insert().Update(), buffered, commandTimeout, useJson);
 		/// <summary>
 		/// Builds and runs a query to upsert the record into the table represented by <typeparamref name="T"/> using a sql merge
 		/// </summary>
 		public static void Upsert<T>(this IQueryRunner queryRunner, IDbTransaction transaction, T record, bool buffered = true, int? commandTimeout = null, bool useJson = false) =>
-			queryRunner.Merge(transaction, new[] { record }, SqlOperation.Insert | SqlOperation.Update, buffered, commandTimeout, useJson);
+			queryRunner.Merge(transaction, new[] { record }, x => x.Insert().Update(), buffered, commandTimeout, useJson);
 	}
 }

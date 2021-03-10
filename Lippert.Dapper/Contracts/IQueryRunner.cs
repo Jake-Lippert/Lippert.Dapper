@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
-using Lippert.Core.Data;
 using Lippert.Core.Data.QueryBuilders;
 
 namespace Lippert.Dapper.Contracts
@@ -82,10 +81,12 @@ namespace Lippert.Dapper.Contracts
 		/// <summary>
 		/// Builds and runs a query to merge records for the table represented by <typeparamref name="T"/>
 		/// </summary>
-		void Merge<T>(IDbConnection connection, IEnumerable<T> records, SqlOperation mergeOperations, bool buffered = true, int? commandTimeout = null, bool useJson = false);
+		/// <returns>The records that were deleted</returns>
+		IEnumerable<T> Merge<T>(IDbConnection connection, IEnumerable<T> records, Func<MergeDefinition<T>, MergeDefinition<T>> buildMergeDefinition, bool buffered = true, int? commandTimeout = null, bool useJson = false);
 		/// <summary>
 		/// Builds and runs a query to merge records for the table represented by <typeparamref name="T"/>
 		/// </summary>
-		void Merge<T>(IDbTransaction transaction, IEnumerable<T> records, SqlOperation mergeOperations, bool buffered = true, int? commandTimeout = null, bool useJson = false);
+		/// <returns>The records that were deleted</returns>
+		IEnumerable<T> Merge<T>(IDbTransaction transaction, IEnumerable<T> records, Func<MergeDefinition<T>, MergeDefinition<T>> buildMergeDefinition, bool buffered = true, int? commandTimeout = null, bool useJson = false);
 	}
 }

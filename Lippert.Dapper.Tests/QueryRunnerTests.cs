@@ -4,7 +4,6 @@ using System.Data;
 using System.Linq;
 using Dapper;
 using Lippert.Core.Configuration;
-using Lippert.Core.Data;
 using Lippert.Core.Data.QueryBuilders;
 using Lippert.Dapper.Tests.TestSchema;
 using Lippert.Dapper.Tests.TestSchema.Contracts;
@@ -782,7 +781,7 @@ namespace Lippert.Dapper.Tests
 
 
 		[Test]
-		public void TestMerge([Values(true, false)] bool includeInsert, [Values(true, false)] bool includeUpdate, [Values(true, false)] bool useJson)
+		public void TestMerge([Values(true, false)] bool includeInsert, [Values(true, false)] bool includeUpdate, [Values(0, 1, 2)] int includeDelete, [Values(true, false)] bool useJson)
 		{
 			//--Arrange
 			var records = new[]
@@ -804,8 +803,6 @@ namespace Lippert.Dapper.Tests
 				}
 			};
 
-			var mergeOperations = (includeInsert ? SqlOperation.Insert : 0) | (includeUpdate ? SqlOperation.Update : 0);
-
 			IEnumerable<Tuple<SqlServerMergeQueryBuilder.RecordMergeCorrelation, Client>> ReturnRecords(IDbConnection conn, string sql, object? param)
 			{
 				//--Assert
@@ -822,14 +819,38 @@ namespace Lippert.Dapper.Tests
 				{
 					StringAssert.Contains("when matched then update set", sql);
 				}
+				switch (includeDelete)
+				{
+					case 1:
+						StringAssert.Contains("when not matched by source then delete", sql);
+						break;
+					case 2:
+						StringAssert.Contains("when not matched by source and target.[IsActive] = @deleteFilter0 and target.[Name] = @deleteFilter1 then delete", sql);
+						break;
+				}
 
 				Assert.AreSame(_dbConnectionMock, conn);
 
 				Console.WriteLine();
-				var serialized = (string)param!.GetType().GetProperty("serialized").GetValue(param);
-				Assert.IsNotNull(serialized);
-				Console.WriteLine(serialized);
-				//Assert.AreEqual("[{},{},{}]", serialized);
+				if (param is DynamicParameters dynamicParameters)
+				{
+					var serialized = dynamicParameters.Get<string>("serialized");
+					Assert.IsNotNull(serialized);
+					Console.WriteLine(serialized);
+
+					if (includeDelete == 2)
+					{
+						var deleteFilter0 = dynamicParameters.Get<bool>("deleteFilter0");
+						Assert.AreEqual(false, deleteFilter0);
+
+						var deleteFilter1 = dynamicParameters.Get<string>("deleteFilter1");
+						Assert.AreEqual("Some Name!", deleteFilter1);
+					}
+				}
+				else
+				{
+					Assert.Fail($"The type of '{nameof(param)}' is not of type '{typeof(DynamicParameters).FullName}'");
+				}
 
 				return records.Select((r, i) => new Tuple<SqlServerMergeQueryBuilder.RecordMergeCorrelation, Client>(new SqlServerMergeQueryBuilder.RecordMergeCorrelation
 				{
@@ -837,7 +858,7 @@ namespace Lippert.Dapper.Tests
 				}, r));
 			}
 
-			if (includeInsert)
+			if (includeInsert | includeUpdate | includeDelete > 0)
 			{
 				//--Mock
 				_dapperMock.Setup(x => x.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, Client>(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<CommandType?>()))
@@ -848,30 +869,42 @@ namespace Lippert.Dapper.Tests
 					});
 
 				//--Act
-				_queryRunner.Merge(_dbConnectionMock, records, mergeOperations, useJson: useJson);
+				_queryRunner.Merge(_dbConnectionMock, records, BuildMergeDefinition, useJson: useJson);
 
 				//--Assert
 				_dapperMock.Verify(x => x.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, Client>(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<CommandType?>()));
 			}
-			else if (includeUpdate)
-			{
-				//--Mock
-				_dapperMock.Setup(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<int?>(), It.IsAny<CommandType?>()))
-					.Callback((IDbConnection conn, string sql, object? param, int? commandTimeout, CommandType? commandType) => ReturnRecords(conn, sql, param));
-
-				//--Act
-				_queryRunner.Merge(_dbConnectionMock, records, mergeOperations, useJson: useJson);
-
-				//--Assert
-				_dapperMock.Verify(x => x.Execute(It.IsAny<IDbConnection>(), It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<int?>(), It.IsAny<CommandType?>()));
-			}
 			else
 			{
 				//--Act/Assert
-				Assert.Throws<ArgumentException>(() => _queryRunner.Merge(_dbConnectionMock, records, mergeOperations));
+				Assert.Throws<ArgumentException>(() => _queryRunner.Merge(_dbConnectionMock, records, BuildMergeDefinition));
+			}
+
+			MergeDefinition<Client> BuildMergeDefinition(MergeDefinition<Client> mergeDefinition)
+			{
+				if (includeInsert)
+				{
+					mergeDefinition.Insert();
+				}
+				
+				if (includeUpdate)
+				{
+					mergeDefinition.Update();
+				}
+
+				switch (includeDelete)
+				{
+					case 1:
+						mergeDefinition.Delete();
+						break;
+					case 2:
+						mergeDefinition.Delete(x => x.Filter(c => c.IsActive, false).Filter(c => c.Name, "Some Name!"));
+						break;
+				}
+
+				return mergeDefinition;
 			}
 		}
-
 
 		public class GuidIdentifier
 		{

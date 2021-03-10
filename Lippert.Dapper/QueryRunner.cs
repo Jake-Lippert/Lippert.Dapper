@@ -2,13 +2,11 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
-using System.Xml.Linq;
 using Dapper;
 using Lippert.Core.Collections.Extensions;
 using Lippert.Core.Data;
 using Lippert.Core.Data.QueryBuilders;
 using Lippert.Core.Data.QueryBuilders.Contracts;
-using Newtonsoft.Json;
 
 namespace Lippert.Dapper
 {
@@ -229,26 +227,30 @@ namespace Lippert.Dapper
 		/// <summary>
 		/// Builds and runs a query to merge records for the table represented by <typeparamref name="T"/>
 		/// </summary>
-		public void Merge<T>(IDbConnection connection, IEnumerable<T> records, SqlOperation mergeOperations, bool buffered = true, int? commandTimeout = null, bool useJson = false) =>
-			Merge(connection, records, null, mergeOperations, buffered, commandTimeout, useJson);
+		/// <returns>The records that were deleted</returns>
+		public IEnumerable<T> Merge<T>(IDbConnection connection, IEnumerable<T> records, Func<MergeDefinition<T>, MergeDefinition<T>> buildMergeDefinition, bool buffered = true, int? commandTimeout = null, bool useJson = false) =>
+			Merge(connection, records, null, buildMergeDefinition, buffered, commandTimeout, useJson);
 		/// <summary>
 		/// Builds and runs a query to merge records for the table represented by <typeparamref name="T"/>
 		/// </summary>
-		public void Merge<T>(IDbTransaction transaction, IEnumerable<T> records, SqlOperation mergeOperations, bool buffered = true, int? commandTimeout = null, bool useJson = false) =>
-			Merge(transaction.Connection, records, transaction, mergeOperations, buffered, commandTimeout, useJson);
+		/// <returns>The records that were deleted</returns>
+		public IEnumerable<T> Merge<T>(IDbTransaction transaction, IEnumerable<T> records, Func<MergeDefinition<T>, MergeDefinition<T>> buildMergeDefinition, bool buffered = true, int? commandTimeout = null, bool useJson = false) =>
+			Merge(transaction.Connection, records, transaction, buildMergeDefinition, buffered, commandTimeout, useJson);
 		/// <summary>
 		/// Builds and runs a query to merge records for the table represented by <typeparamref name="T"/>
 		/// </summary>
-		private void Merge<T>(IDbConnection connection, IEnumerable<T> records, IDbTransaction? transaction, SqlOperation mergeOperations, bool buffered, int? commandTimeout, bool useJson)
+		/// <returns>The records that were deleted</returns>
+		private IEnumerable<T> Merge<T>(IDbConnection connection, IEnumerable<T> records, IDbTransaction? transaction, Func<MergeDefinition<T>, MergeDefinition<T>> buildMergeDefinition, bool buffered, int? commandTimeout, bool useJson)
 		{
+			var mergeDefinition = buildMergeDefinition(new MergeDefinition<T>());
 			var workingRecords = records.Select(record =>
 			{
 				//--Set properties using value providers
-				if (mergeOperations.HasFlag(SqlOperation.Update))
+				if (mergeDefinition.IncludeUpdate)
 				{
 					ColumnValueProvider.ApplyUpdateValues(record);
 				}
-				if (mergeOperations.HasFlag(SqlOperation.Insert))
+				if (mergeDefinition.IncludeInsert)
 				{
 					ColumnValueProvider.ApplyInsertValues(record);
 				}
@@ -257,36 +259,33 @@ namespace Lippert.Dapper
 			}).ToList();
 
 			var tableMap = SqlServerQueryBuilder.GetTableMap<T>();
-			var sql = _mergeQueryBuilder.Merge(out var mergeSerializer, mergeOperations, tableMap, useJson);
-			var serialized = mergeSerializer.SerializeForMerge(records);
-
-			if (mergeOperations.HasFlag(SqlOperation.Insert))
+			var sql = _mergeQueryBuilder.Merge(out var mergeSerializer, mergeDefinition, tableMap, useJson);
+			
+			var dynamicParameters = new DynamicParameters();
+			dynamicParameters.Add("serialized", mergeSerializer.SerializeForMerge(records));
+			foreach (var (deleteFilter, i) in mergeDefinition.GetDeleteFilterColumns().Indexed())
 			{
-				var output = (transaction switch
-				{
-					IDbTransaction trans => _dapperWrapper.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, T>(trans, sql, new { serialized }, buffered, SqlServerQueryBuilder.SplitOn, commandTimeout),
-					_ => _dapperWrapper.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, T>(connection, sql, new { serialized }, buffered, SqlServerQueryBuilder.SplitOn, commandTimeout)
-				}).ToDictionary(x => x.Item1.CorrelationIndex, x => (x.Item1.Action, Record: x.Item2));
+				dynamicParameters.Add($"deleteFilter{i}", deleteFilter.Value);
+			}
 
-				foreach (var (record, index) in workingRecords.Indexed())
+			var output = (transaction switch
+			{
+				IDbTransaction trans => _dapperWrapper.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, T>(trans, sql, dynamicParameters, buffered, SqlServerQueryBuilder.SplitOn, commandTimeout),
+				_ => _dapperWrapper.Query<SqlServerMergeQueryBuilder.RecordMergeCorrelation, T>(connection, sql, dynamicParameters, buffered, SqlServerQueryBuilder.SplitOn, commandTimeout)
+			}).ToLookup(x => x.Item1.CorrelationIndex, x => (x.Item1.Action, Record: x.Item2));
+
+			foreach (var (record, index) in workingRecords.Indexed())
+			{
+				if (output[index].SingleOrDefault() is ("INSERT", { } insertedRecord))
 				{
-					if (output.TryGetValue(index, out var recordAction) && recordAction is ("INSERT", { } insertedRecord))
+					foreach (var generatedProperty in tableMap.GeneratedColumns.Select(c => c.Property))
 					{
-						foreach (var generatedProperty in tableMap.GeneratedColumns.Select(c => c.Property))
-						{
-							generatedProperty.SetValue(record, generatedProperty.GetValue(insertedRecord));
-						}
+						generatedProperty.SetValue(record, generatedProperty.GetValue(insertedRecord));
 					}
 				}
 			}
-			else if (transaction is IDbTransaction trans)
-			{
-				_dapperWrapper.Execute(trans, sql, new { serialized }, commandTimeout);
-			}
-			else
-			{
-				_dapperWrapper.Execute(connection, sql, new { serialized }, commandTimeout);
-			}
+
+			return output[null].Where(x => x.Action == "DELETE").Select(x => x.Record);
 		}
 
 		private int Execute(IDbConnection connection, string sql, object? param, IDbTransaction? transaction, int? commandTimeout) => transaction switch
